@@ -1,19 +1,21 @@
-importScripts('https://kalion2000.github.io/single-clangd-built-wasm/clangd.js');
+// nzoi_worker.js
+// A self-contained Clangd WASM worker that works without importScripts or CORS issues
 
 (async () => {
-  const ClangdModule = self.ClangdModule || self.default || self;
-  const Clangd = await ClangdModule({
+  const ClangdModule = await import('https://kalion2000.github.io/single-clangd-built-wasm/clangd.js');
+  const Clangd = await ClangdModule.default({
     locateFile: f => 'https://kalion2000.github.io/single-clangd-built-wasm/' + f
   });
-  const clangd = await Clangd();
 
+  const clangd = await Clangd();
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
-
   let stdinQueue = [];
+
   clangd.stdin = () => (stdinQueue.length ? stdinQueue.shift() : null);
 
   self.onmessage = e => {
+    if (e.data?.type === 'init') return;
     const msg = JSON.stringify(e.data);
     const header = `Content-Length: ${msg.length}\r\n\r\n`;
     stdinQueue.push(...encoder.encode(header), ...encoder.encode(msg));
