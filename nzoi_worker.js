@@ -1,14 +1,10 @@
-// File: nzoi_worker.js
+importScripts('https://kalion2000.github.io/single-clangd-built-wasm/clangd.js');
 
-const CLANGD_BASE = 'https://kalion2000.github.io/single-clangd-built-wasm/';
-
-importScripts(`${CLANGD_BASE}clangd.js`);
-
-self.onmessage = async (e) => {
+(async () => {
+  const ClangdModule = self.ClangdModule || self.default || self;
   const Clangd = await ClangdModule({
-    locateFile: (f) => CLANGD_BASE + f,
+    locateFile: f => 'https://kalion2000.github.io/single-clangd-built-wasm/' + f
   });
-
   const clangd = await Clangd();
 
   const encoder = new TextEncoder();
@@ -17,25 +13,30 @@ self.onmessage = async (e) => {
   let stdinQueue = [];
   clangd.stdin = () => (stdinQueue.length ? stdinQueue.shift() : null);
 
-  self.onmessage = (e) => {
+  self.onmessage = e => {
     const msg = JSON.stringify(e.data);
     const header = `Content-Length: ${msg.length}\r\n\r\n`;
     stdinQueue.push(...encoder.encode(header), ...encoder.encode(msg));
   };
 
   let buffer = '';
-  clangd.stdout = (c) => {
+  clangd.stdout = c => {
     buffer += decoder.decode(new Uint8Array([c]));
-    let idx;
-    while ((idx = buffer.indexOf('\r\n\r\n')) !== -1) {
-      const len = parseInt(buffer.substring(16, idx), 10);
-      const body = buffer.substring(idx + 4, idx + 4 + len);
-      if (body.length < len) return;
-      postMessage(JSON.parse(body));
-      buffer = buffer.substring(idx + 4 + len);
+    let sep = '\r\n\r\n';
+    while (buffer.includes(sep)) {
+      const headerEnd = buffer.indexOf(sep);
+      const header = buffer.slice(0, headerEnd);
+      const match = header.match(/Content-Length: (\d+)/);
+      if (!match) return;
+      const length = parseInt(match[1]);
+      const bodyStart = headerEnd + sep.length;
+      if (buffer.length < bodyStart + length) return;
+      const json = buffer.slice(bodyStart, bodyStart + length);
+      self.postMessage(JSON.parse(json));
+      buffer = buffer.slice(bodyStart + length);
     }
   };
 
   clangd.callMain([]);
-  postMessage({ type: 'ready' });
-};
+  self.postMessage({ type: 'ready' });
+})();
